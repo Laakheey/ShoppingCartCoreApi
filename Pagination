@@ -1,0 +1,129 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore.Internal;
+using Microsoft.Extensions.Logging;
+using PaginationCore.Models;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Linq.Expressions;
+
+namespace PaginationCore.Controllers
+{
+    [Authorize]
+    public class PController : Controller
+    {
+        private readonly ProductDbContext dbContext;
+        public PController(ProductDbContext dbContext)
+        {
+            this.dbContext = dbContext;
+        }
+        private Expression<Func<Product, object>> GetPropertyExpression(string propertyName)
+        {
+            var parameter = Expression.Parameter(typeof(Product), "x");
+            var property = Expression.Property(parameter, propertyName);
+            var convert = Expression.Convert(property, typeof(object));
+            var lambda = Expression.Lambda<Func<Product, object>>(convert, parameter);
+            return lambda;
+        }
+        public IActionResult Index(int? pageIndex, int? pageSize, string query, string sort, string column)
+        {
+            int currentPageIndex = pageIndex ?? 1;
+            int currentPageSize = pageSize ?? 10;
+
+            var totalItems = dbContext.Products.Count();
+
+            if (currentPageIndex <= 0)
+            {
+                return NoContent();
+            }
+
+            var products = dbContext.Products.AsQueryable();
+
+            if (!string.IsNullOrEmpty(query))
+            {
+                products = products.Where(p => p.Name.Contains(query));
+            }
+
+            if (string.IsNullOrEmpty(column))
+            {
+                column = "Name";
+            }
+
+            switch (sort)
+            {
+                case "desc":
+                    products = products.OrderByDescending(GetPropertyExpression(column));
+                    sort = "asc";
+                    break;
+                default:
+                    products = products.OrderBy(GetPropertyExpression(column));
+                    sort = "desc";
+                    break;
+            }
+
+            var pagedList = new PaginatedData<Product>(
+                products.Skip((currentPageIndex - 1) * currentPageSize).Take(currentPageSize).ToList(),
+                totalItems,
+                currentPageIndex,
+                currentPageSize);
+
+            ViewBag.PageSizeOptions = new List<int> { 1, 2, 10, 25, 50 };
+            ViewBag.SelectedPageSize = currentPageSize;
+            ViewBag.CurrentPageIndex = currentPageIndex;
+            ViewBag.TotalItems = totalItems;
+            ViewBag.SortDirection = sort;
+            ViewBag.SortColumn = column;
+
+            return View(pagedList);
+        }
+        
+        public IActionResult SetPageIndex(int pageIndex)
+        {
+            return RedirectToAction("Index", new { pageIndex = pageIndex });
+        }
+
+        public IActionResult SetPageSize(int pageSize)
+        {
+            return RedirectToAction("Index", new { pageSize = pageSize });
+        }
+        public IActionResult GoogleMap(string? inputField, string? selectedLocation, string? buttonClicked)
+        {
+            ViewData["InputField"] = inputField;
+            ViewData["SelectedLocation"] = selectedLocation;
+
+            if (!string.IsNullOrEmpty(selectedLocation))
+            {
+                var coordinates = selectedLocation.Split(",");
+                if (coordinates.Length == 2)
+                {
+                    ViewData["Latitude"] = coordinates[0];
+                    ViewData["Longitude"] = coordinates[1];
+                }
+            }
+
+            if (!string.IsNullOrEmpty(buttonClicked))
+            {
+                if (buttonClicked == "to")
+                {
+                    // Render the button with onclick="markLocationTo()" functionality in the view
+                    ViewData["ButtonClicked"] = "to";
+                }
+                else if (buttonClicked == "from")
+                {
+                    // Render the button with onclick="markLocation()" functionality in the view
+                    ViewData["ButtonClicked"] = "from";
+                }
+            }
+
+            return View();
+        }
+
+        public IActionResult Create()
+        {
+            return RedirectToAction();
+        }
+
+    }
+}
